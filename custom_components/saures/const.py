@@ -29,4 +29,8 @@ DEVICE_STATES = {
 
 # Update intervals
 DEFAULT_UPDATE_INTERVAL = 300  # 5 minutes
-BATTERY_UPDATE_INTERVAL = 3600  # 1 hour 
+BATTERY_UPDATE_INTERVAL = 3600  # 1 hour
+
+# Update interval limits (in minutes)
+MIN_UPDATE_INTERVAL = 1  # 1 minute
+MAX_UPDATE_INTERVAL = 1440  # 24 hours 

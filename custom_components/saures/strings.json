@@ -6,7 +6,8 @@
         "description": "Введите учетные данные для подключения к системе Saures",
         "data": {
           "email": "Email",
-          "password": "Пароль"
+          "password": "Пароль",
+          "update_interval": "Интервал обновления (в минутах)"
         }
       }
     },

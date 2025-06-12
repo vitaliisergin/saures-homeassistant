@@ -22,11 +22,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Saures from a config entry."""
     email = entry.data["email"]
     password = entry.data["password"]
+    update_interval = entry.data.get("update_interval", 5)  # Default 5 minutes
     
     api_client = SauresAPIClient(email, password)
     
     # Create data coordinator
-    coordinator = SauresDataUpdateCoordinator(hass, api_client)
+    coordinator = SauresDataUpdateCoordinator(hass, api_client, update_interval)
     
     # Store coordinator before first refresh
     hass.data.setdefault(DOMAIN, {})
@@ -57,13 +58,13 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 class SauresDataUpdateCoordinator(DataUpdateCoordinator):
     """Class to manage fetching Saures data."""
     
-    def __init__(self, hass: HomeAssistant, api_client: SauresAPIClient) -> None:
+    def __init__(self, hass: HomeAssistant, api_client: SauresAPIClient, update_interval: int) -> None:
         """Initialize the coordinator."""
         super().__init__(
             hass,
             _LOGGER,
             name=DOMAIN,
-            update_interval=timedelta(minutes=5),
+            update_interval=timedelta(minutes=update_interval),
         )
         self.api_client = api_client
         

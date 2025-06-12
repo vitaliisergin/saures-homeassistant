@@ -12,7 +12,7 @@ from homeassistant.data_entry_flow import FlowResult
 from homeassistant.exceptions import HomeAssistantError
 
 from .api import SauresAPIClient
-from .const import DOMAIN
+from .const import DOMAIN, MIN_UPDATE_INTERVAL, MAX_UPDATE_INTERVAL
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -20,6 +20,10 @@ STEP_USER_DATA_SCHEMA = vol.Schema(
     {
         vol.Required("email"): str,
         vol.Required("password"): str,
+        vol.Required("update_interval", default=5): vol.All(
+            vol.Coerce(int), 
+            vol.Range(min=MIN_UPDATE_INTERVAL, max=MAX_UPDATE_INTERVAL)
+        ),
     }
 )
 
