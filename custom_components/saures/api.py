@@ -3,10 +3,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any
+import time
+from typing import Any, Optional
+from datetime import datetime, timedelta
 
 import aiohttp
-from aiohttp import ClientOSError, ContentTypeError
+from aiohttp import ClientOSError, ContentTypeError, ClientSession
 
 from .const import API_URL, REQUEST_ATTEMPTS
 
@@ -14,65 +16,183 @@ _LOGGER = logging.getLogger(__name__)
 
 
 class SauresAPIClient:
-    """Saures API client with automatic SID renewal."""
+    """Optimized Saures API client with session reuse, caching and proper error handling."""
     
     def __init__(self, email: str, password: str) -> None:
         """Initialize the API client."""
         self._email = email
         self._password = password
+        
+        # Session management
+        self._session: Optional[ClientSession] = None
+        
+        # SID management with TTL (15 minutes as per API docs)
         self._sid = None
+        self._sid_expires = None
         self._sid_renewal = False
         
-    async def request(self, method: str, url: str, **kwargs) -> dict[str, Any] | bool:
-        """Make API request with retry logic."""
+        # Cache for data with TTL
+        self._cache = {}
+        
+        # Error monitoring
+        self._error_count = 0
+        self._last_error_time = 0
+        self._duplicate_errors = 0
+        self._rate_limit_errors = 0
+        
+    async def _get_session(self) -> ClientSession:
+        """Get or create HTTP session."""
+        if self._session is None or self._session.closed:
+            timeout = aiohttp.ClientTimeout(total=30, connect=10)
+            self._session = ClientSession(timeout=timeout)
+        return self._session
+        
+    async def close(self) -> None:
+        """Close HTTP session."""
+        if self._session and not self._session.closed:
+            await self._session.close()
+            
+    def _is_sid_valid(self) -> bool:
+        """Check if current SID is still valid (within 15 minutes TTL)."""
+        if not self._sid or not self._sid_expires:
+            return False
+        return datetime.now() < self._sid_expires
+        
+    def _calculate_backoff_delay(self, attempt: int, base_delay: float = 1.0) -> float:
+        """Calculate exponential backoff delay."""
+        return min(base_delay * (2 ** (attempt - 1)), 60.0)  # Max 60 seconds
+        
+    def _get_cache_key(self, method: str, url: str, **kwargs) -> str:
+        """Generate cache key for request."""
+        params_str = "_".join(f"{k}={v}" for k, v in sorted(kwargs.items()))
+        return f"{method}_{url}_{params_str}"
+        
+    def _is_cache_valid(self, cache_entry: dict, ttl_minutes: int = 5) -> bool:
+        """Check if cached data is still valid."""
+        if not cache_entry:
+            return False
+        cache_time = cache_entry.get("timestamp", 0)
+        return time.time() - cache_time < ttl_minutes * 60
+        
+    async def request(self, method: str, url: str, use_cache: bool = True, cache_ttl: int = 5, **kwargs) -> dict[str, Any] | bool:
+        """Make API request with retry logic, caching and exponential backoff."""
+        
+        # Check cache first
+        cache_key = self._get_cache_key(method, url, **kwargs)
+        if use_cache and cache_key in self._cache:
+            cached = self._cache[cache_key]
+            if self._is_cache_valid(cached, cache_ttl):
+                _LOGGER.debug("Using cached data for %s", cache_key)
+                return cached["data"]
+                
         data = {}
         data.update(kwargs)
         
-        for i in range(1, REQUEST_ATTEMPTS + 1):
-            if self._sid:
+        for attempt in range(1, REQUEST_ATTEMPTS + 1):
+            # Add SID if available and valid
+            if self._is_sid_valid():
                 data.update({"sid": self._sid})
                 
             try:
-                async with aiohttp.ClientSession() as session:
-                    async with session.request(
-                        method,
-                        API_URL + url,
-                        params=data if method == "GET" else None,
-                        data=data if method == "POST" else None,
-                    ) as request:
-                        response = await request.json()
+                session = await self._get_session()
+                async with session.request(
+                    method,
+                    API_URL + url,
+                    params=data if method == "GET" else None,
+                    data=data if method == "POST" else None,
+                ) as request:
+                    response = await request.json()
+                    
             except (ClientOSError, ContentTypeError) as err:
-                _LOGGER.warning("Request error (attempt %d/%d): %s", i, REQUEST_ATTEMPTS, err)
-                if i == REQUEST_ATTEMPTS:
-                    return False
-                await asyncio.sleep(5)
-            else:
-                if response.get("status") == "ok":
-                    return response
-                    
-                errors = [e["name"] for e in response["errors"]]
+                _LOGGER.warning("Network error (attempt %d/%d): %s", attempt, REQUEST_ATTEMPTS, err)
+                self._error_count += 1
+                self._last_error_time = time.time()
                 
-                if "WrongSIDException" in errors:
-                    if not self._sid_renewal:
-                        self._sid = None
-                    if i == REQUEST_ATTEMPTS:
-                        return False
-                    await self._check_sid()
-                    continue
+                if attempt == REQUEST_ATTEMPTS:
+                    # Return cached data if available as fallback
+                    if cache_key in self._cache:
+                        cached = self._cache[cache_key]
+                        _LOGGER.warning("API unavailable, using stale cached data")
+                        return cached["data"]
+                    return False
                     
-                if "DuplicateRequestException" in errors:
-                    if i == REQUEST_ATTEMPTS:
-                        return False
-                    await asyncio.sleep(10)
-                    continue
+                # Exponential backoff for network errors
+                delay = self._calculate_backoff_delay(attempt, 2.0)
+                await asyncio.sleep(delay)
+                continue
+                
+            except Exception as err:
+                _LOGGER.error("Unexpected error: %s", err)
+                if attempt == REQUEST_ATTEMPTS:
+                    return False
+                await asyncio.sleep(self._calculate_backoff_delay(attempt))
+                continue
+                
+            # Process response
+            if response.get("status") == "ok":
+                # Cache successful response
+                if use_cache:
+                    self._cache[cache_key] = {
+                        "data": response,
+                        "timestamp": time.time()
+                    }
                     
-                _LOGGER.error("API error: %s", response.get("errors"))
+                # Reset error counters on success
+                if self._error_count > 0:
+                    _LOGGER.info("API connection recovered after %d errors", self._error_count)
+                    self._error_count = 0
+                    
+                return response
+                
+            # Handle API errors
+            errors = [e["name"] for e in response.get("errors", [])]
+            
+            if "WrongSIDException" in errors:
+                _LOGGER.debug("SID expired, will renew")
+                self._sid = None
+                self._sid_expires = None
+                
+                if not self._sid_renewal:
+                    await self._update_sid()
+                    
+                if attempt == REQUEST_ATTEMPTS:
+                    return False
+                continue
+                
+            if "DuplicateRequestException" in errors:
+                self._duplicate_errors += 1
+                _LOGGER.warning("Duplicate request detected (count: %d)", self._duplicate_errors)
+                
+                if attempt == REQUEST_ATTEMPTS:
+                    return False
+                    
+                # API docs recommend 10 seconds for duplicate requests
+                await asyncio.sleep(10)
+                continue
+                
+            # Check for rate limiting indicators
+            if any(error in ["TooManyRequestsException", "RateLimitException"] for error in errors):
+                self._rate_limit_errors += 1
+                _LOGGER.warning("Rate limit hit (count: %d)", self._rate_limit_errors)
+                
+                # Longer delay for rate limiting
+                delay = self._calculate_backoff_delay(attempt, 30.0)
+                await asyncio.sleep(delay)
+                continue
+                
+            _LOGGER.error("API error (attempt %d/%d): %s", attempt, REQUEST_ATTEMPTS, response.get("errors"))
+            
+            # For other errors, try exponential backoff
+            if attempt < REQUEST_ATTEMPTS:
+                delay = self._calculate_backoff_delay(attempt, 5.0)
+                await asyncio.sleep(delay)
+            else:
                 return response
                 
         return False
         
     async def _update_sid(self) -> bool:
-        """Update session ID by logging in."""
+        """Update session ID with proper TTL management."""
         if self._sid_renewal:
             return False
             
@@ -83,16 +203,18 @@ class SauresAPIClient:
                 "password": self._password
             }
             
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    API_URL + "/login",
-                    data=login_data
-                ) as request:
-                    response = await request.json()
-                    
+            session = await self._get_session()
+            async with session.post(
+                API_URL + "/login",
+                data=login_data
+            ) as request:
+                response = await request.json()
+                
             if response.get("status") == "ok":
                 self._sid = response["data"]["sid"]
-                _LOGGER.debug("Successfully updated SID")
+                # Set expiration to 14 minutes (1 minute buffer before 15 min limit)
+                self._sid_expires = datetime.now() + timedelta(minutes=14)
+                _LOGGER.debug("Successfully updated SID, expires at %s", self._sid_expires)
                 return True
             else:
                 _LOGGER.error("Login failed: %s", response.get("errors"))
@@ -103,35 +225,39 @@ class SauresAPIClient:
             return False
         finally:
             self._sid_renewal = False
-        
+            
     async def _check_sid(self) -> bool:
         """Check if SID is valid and update if needed."""
         if self._sid_renewal:
-            while self._sid_renewal:
-                await asyncio.sleep(1)
-        elif not self._sid:
+            # Wait for ongoing renewal
+            timeout = 30  # 30 second timeout
+            start_time = time.time()
+            while self._sid_renewal and (time.time() - start_time) < timeout:
+                await asyncio.sleep(0.5)
+                
+        if not self._is_sid_valid():
             await self._update_sid()
             
-        return bool(self._sid)
+        return self._is_sid_valid()
         
     async def user_objects(self) -> list[dict[str, Any]]:
-        """Get user objects."""
+        """Get user objects with caching."""
         if await self._check_sid():
-            response = await self.request("GET", "/user/objects")
+            response = await self.request("GET", "/user/objects", cache_ttl=30)  # Cache for 30 minutes
             if response and isinstance(response, dict):
                 return response["data"]["objects"]
         return []
         
     async def object_meters(self, object_id: int) -> dict[str, Any]:
-        """Get meters for object."""
+        """Get meters for object with caching."""
         if await self._check_sid():
-            response = await self.request("GET", "/object/meters", id=object_id)
+            response = await self.request("GET", "/object/meters", id=object_id, cache_ttl=5)  # Cache for 5 minutes
             if response and isinstance(response, dict):
                 return response["data"]
         return {}
         
     async def sensor_battery(self, sensor_sn: str, start: str = None, finish: str = None) -> dict[str, Any]:
-        """Get sensor battery data."""
+        """Get sensor battery data with caching."""
         if await self._check_sid():
             params = {"sn": sensor_sn}
             if start:
@@ -139,15 +265,13 @@ class SauresAPIClient:
             if finish:
                 params["finish"] = finish
                 
-            response = await self.request("GET", "/sensor/battery", **params)
+            response = await self.request("GET", "/sensor/battery", cache_ttl=60, **params)  # Cache for 1 hour
             if response and isinstance(response, dict):
                 return response["data"]
         return {}
         
-
-        
     async def meter_get(self, meter_id: int, start: str = None, finish: str = None, group: str = None) -> dict[str, Any]:
-        """Get detailed meter data."""
+        """Get detailed meter data with caching."""
         if await self._check_sid():
             params = {"id": meter_id}
             if start:
@@ -157,7 +281,20 @@ class SauresAPIClient:
             if group:
                 params["group"] = group
                 
-            response = await self.request("GET", "/meter/get", **params)
+            cache_ttl = 60 if group else 5  # Cache longer for aggregated data
+            response = await self.request("GET", "/meter/get", cache_ttl=cache_ttl, **params)
             if response and isinstance(response, dict):
                 return response["data"]
-        return {} 
+        return {}
+        
+    def get_error_stats(self) -> dict[str, Any]:
+        """Get error statistics for monitoring."""
+        return {
+            "total_errors": self._error_count,
+            "duplicate_errors": self._duplicate_errors,
+            "rate_limit_errors": self._rate_limit_errors,
+            "last_error_time": self._last_error_time,
+            "sid_valid": self._is_sid_valid(),
+            "sid_expires": self._sid_expires.isoformat() if self._sid_expires else None,
+            "cache_entries": len(self._cache)
+        }

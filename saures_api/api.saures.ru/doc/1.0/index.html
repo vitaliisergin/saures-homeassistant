@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="ru">
+
+<!-- Mirrored from api.saures.ru/doc/1.0/ by HTTrack Website Copier/3.x [XR&CO'2014], Thu, 12 Jun 2025 14:35:40 GMT -->
+<!-- Added by HTTrack --><meta http-equiv="content-type" content="text/html;charset=utf-8" /><!-- /Added by HTTrack -->
+<head>
+<meta charset="utf-8">
+<title>SAURES API | Общие принципы</title>
+<!-- Mobile Specific Meta Tag-->
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#1e88e5">
+<!-- Favicon and Apple Icons-->
+<link rel="icon" href="https://api.saures.ru/img/favicon.ico">
+<link rel="apple-touch-icon" sizes="180x180" href="../../img/apple-touch-icon.png">
+<link rel="icon" type="image/png" href="../../img/favicon-32x32.png" sizes="32x32">
+<link rel="icon" type="image/png" href="../../img/favicon-16x16.png" sizes="16x16">
+<link rel="mask-icon" href="https://api.saures.ru/img/safari-pinned-tab.svg" color="#5bbad5">
+
+<link href="../../styles/documentation.css" rel="stylesheet">
+<!-- HTML5 Shim and Respond.js IE8 support of HTML5 elements and media queries -->
+<!--[if lt IE 9]>
+<script src="https://oss.maxcdn.com/libs/html5shiv/3.7.0/html5shiv.js"></script>
+<script src="https://oss.maxcdn.com/libs/respond.js/1.4.2/respond.min.js"></script>
+<![endif]-->
+</head>
+<body class="fix-header fix-sidebar card-no-border">
+	<!-- ============================================================== -->
+	<!-- Preloader - style you can find in spinners.css -->
+	<!-- ============================================================== -->
+	<div class="preloader">
+		<svg class="circular" viewBox="25 25 50 50">
+    <circle class="path" cx="50" cy="50" r="20" fill="none"
+				stroke-width="2" stroke-miterlimit="10" /> </svg>
+	</div>
+	    <div id="main-wrapper">
+        <!-- ============================================================== -->
+        <!-- Topbar header - style you can find in pages.scss -->
+        <!-- ============================================================== -->
+        <header class="topbar">
+        	<nav class="navbar top-navbar navbar-expand-md navbar-light">
+                <!-- ============================================================== -->
+                <!-- Logo -->
+                <!-- ============================================================== -->
+                <div class="navbar-header">
+                    <a class="navbar-brand" href="index.html">
+                        <!-- Logo icon --><b>
+                            <!--You can put here icon as well // <i class="wi wi-sunset"></i> //-->
+                            <!-- Light Logo icon -->
+                            <img src="https://api.saures.ru/img/logo-srs-icon.svg" alt="SAURES" class="s-logo" width="34" height="33"/>
+                        </b>
+                        <!--End Logo icon -->
+                        <!-- Logo text --><span>
+                            <!-- dark Logo text -->
+                            <img src="https://api.saures.ru/img/logo-api.svg" alt="SAURES" class="dark-logo" width="207" height="19"/>
+                            <!-- Light Logo text -->
+                            <img src="https://api.saures.ru/img/logo-api.svg" class="light-logo"  alt="SAURES" width="207" height="19"/></span>
+                    </a>
+                </div>
+                <!-- ============================================================== -->
+                <!-- End Logo -->
+                <!-- ============================================================== -->
+                
+                <div class="navbar-collapse">
+                    <!-- ============================================================== -->
+                    <!-- toggle and nav items -->
+                    <!-- ============================================================== -->
+                    <ul class="navbar-nav mr-auto mt-md-0">
+                        <!-- This is  -->
+                        <li class="nav-item"> <a class="nav-link nav-toggler hidden-md-up text-muted waves-effect waves-dark" href="javascript:void(0)"><i class="ti-menu"></i></a> </li>
+                        <li class="nav-item"> <a class="nav-link sidebartoggler hidden-sm-down text-muted waves-effect waves-dark" href="javascript:void(0)"><i class="ti-menu"></i></a> </li>
+                        
+                        
+                    </ul>
+                    
+                </div>
+            </nav>
+        </header>
+        <!-- ============================================================== -->
+        <!-- End Topbar header -->
+        <!-- ============================================================== -->
+        
+<!-- ============================================================== -->
+<!-- Left Sidebar - style you can find in sidebar.scss  -->
+<!-- ============================================================== -->
+<aside class="left-sidebar">
+    <!-- Sidebar scroll-->
+    <div class="scroll-sidebar">
+        <div class="m-3 user-profile">
+            <div class="profile-text p-3 border-bottom">
+                 <h5>Список методов</h4>
+            </div>
+        </div>
+
+        <!-- User profile -->
+        
+        <!-- End User profile text-->
+<!-- Sidebar navigation-->
+<nav class="sidebar-nav">
+
+
+
+
+<ul id="sidebarnav">
+
+    <li class="">
+        <a class="waves-effect waves-dark" href="login.html" aria-expanded="false"><i class="mdi mdi-file-outline"></i><span class="hide-menu">/login</span></a>
+    </li>
+
+    <li class="">
+        <a class="waves-effect waves-dark" href="user/profile.html" aria-expanded="false"><i class="mdi mdi-file-outline"></i><span class="hide-menu">/user/profile</span></a>
+    </li>
+
+    <li class="">
+        <a class="waves-effect waves-dark" href="user/objects.html" aria-expanded="false"><i class="mdi mdi-file-outline"></i><span class="hide-menu">/user/objects</span></a>
+    </li>
+
+    <li class="">
+        <a class="waves-effect waves-dark" href="object/get.html" aria-expanded="false"><i class="mdi mdi-file-outline"></i><span class="hide-menu">/object/get</span></a>
+    </li>
+
+    <li class="">
+        <a class="waves-effect waves-dark" href="object/meters.html" aria-expanded="false"><i class="mdi mdi-file-outline"></i><span class="hide-menu">/object/meters</span></a>
+    </li>
+
+    <li class="">
+        <a class="waves-effect waves-dark" href="meter/get.html" aria-expanded="false"><i class="mdi mdi-file-outline"></i><span class="hide-menu">/meter/get</span></a>
+    </li>
+
+    <li class="">
+        <a class="waves-effect waves-dark" href="meter/control.html" aria-expanded="false"><i class="mdi mdi-file-outline"></i><span class="hide-menu">/meter/control</span></a>
+    </li>
+
+    <li class="">
+        <a class="waves-effect waves-dark" href="meter/settings.html" aria-expanded="false"><i class="mdi mdi-file-outline"></i><span class="hide-menu">/meter/settings</span></a>
+    </li>
+
+    <li class="">
+        <a class="waves-effect waves-dark" href="meter/types.html" aria-expanded="false"><i class="mdi mdi-file-outline"></i><span class="hide-menu">/meter/types</span></a>
+    </li>
+
+    <li class="">
+        <a class="waves-effect waves-dark" href="user/register.html" aria-expanded="false"><i class="mdi mdi-file-outline"></i><span class="hide-menu">/user/register</span></a>
+    </li>
+
+    <li class="">
+        <a class="waves-effect waves-dark" href="object/add.html" aria-expanded="false"><i class="mdi mdi-file-outline"></i><span class="hide-menu">/object/add</span></a>
+    </li>
+
+    <li class="">
+        <a class="waves-effect waves-dark" href="object/access.html" aria-expanded="false"><i class="mdi mdi-file-outline"></i><span class="hide-menu">/object/access</span></a>
+    </li>
+
+    <li class="">
+        <a class="waves-effect waves-dark" href="sensor/add.html" aria-expanded="false"><i class="mdi mdi-file-outline"></i><span class="hide-menu">/sensor/add</span></a>
+    </li>
+
+    <li class="">
+        <a class="waves-effect waves-dark" href="sensor/settings.html" aria-expanded="false"><i class="mdi mdi-file-outline"></i><span class="hide-menu">/sensor/settings</span></a>
+    </li>
+
+    <li class="">
+        <a class="waves-effect waves-dark" href="sensor/battery.html" aria-expanded="false"><i class="mdi mdi-file-outline"></i><span class="hide-menu">/sensor/battery</span></a>
+    </li>
+
+    <li class="">
+        <a class="waves-effect waves-dark" href="sensor/move.html" aria-expanded="false"><i class="mdi mdi-file-outline"></i><span class="hide-menu">/sensor/move</span></a>
+    </li>
+
+    <li class="">
+        <a class="waves-effect waves-dark" href="sensor/clear.html" aria-expanded="false"><i class="mdi mdi-file-outline"></i><span class="hide-menu">/sensor/clear</span></a>
+    </li>
+
+    <li class="">
+        <a class="waves-effect waves-dark" href="sensor/delete.html" aria-expanded="false"><i class="mdi mdi-file-outline"></i><span class="hide-menu">/sensor/delete</span></a>
+    </li>
+
+    <li class="">
+        <a class="waves-effect waves-dark" href="meter/save.html" aria-expanded="false"><i class="mdi mdi-file-outline"></i><span class="hide-menu">/meter/save</span></a>
+    </li>
+
+    <li class="">
+        <a class="waves-effect waves-dark" href="object/journal.html" aria-expanded="false"><i class="mdi mdi-file-outline"></i><span class="hide-menu">/object/journal</span></a>
+    </li>
+
+
+    <li class="">
+        <a class="waves-effect waves-dark" href="object/tariffs.html" aria-expanded="false"><i class="mdi mdi-file-outline"></i><span class="hide-menu">/object/tariffs</span></a>
+    </li>
+
+    <li class="">
+        <a class="waves-effect waves-dark" href="object/services.html" aria-expanded="false"><i class="mdi mdi-file-outline"></i><span class="hide-menu">/object/services</span></a>
+    </li>
+
+    <li class="">
+        <a class="waves-effect waves-dark" href="payment/create.html" aria-expanded="false"><i class="mdi mdi-file-outline"></i><span class="hide-menu">/payment/create</span></a>
+    </li>
+
+    <li class="">
+        <a class="waves-effect waves-dark" href="object/transactions.html" aria-expanded="false"><i class="mdi mdi-file-outline"></i><span class="hide-menu">/object/transactions</span></a>
+    </li>
+
+    <li class="">
+        <a class="waves-effect waves-dark" href="object/schedule.html" aria-expanded="false"><i class="mdi mdi-file-outline"></i><span class="hide-menu">/object/schedule</span></a>
+    </li>
+
+    <li class="">
+        <a class="waves-effect waves-dark" href="schedule/templates.html" aria-expanded="false"><i class="mdi mdi-file-outline"></i><span class="hide-menu">/schedule/templates</span></a>
+    </li>
+
+    <li class="">
+        <a class="waves-effect waves-dark" href="schedule/template.html" aria-expanded="false"><i class="mdi mdi-file-outline"></i><span class="hide-menu">/schedule/template</span></a>
+    </li>
+
+    <li class="">
+        <a class="waves-effect waves-dark" href="object/notice.html" aria-expanded="false"><i class="mdi mdi-file-outline"></i><span class="hide-menu">/object/notice</span></a>
+    </li>
+</ul>
+
+        </nav>
+<!-- End Sidebar navigation -->
+
+            </div>
+            <!-- End Sidebar scroll-->
+            <!-- Bottom points-->
+            
+            <div class="sidebar-footer">
+                
+            </div>
+            <!-- End Bottom points-->
+        </aside>
+        <!-- ============================================================== -->
+        <!-- End Left Sidebar - style you can find in sidebar.scss  -->
+        <!-- ============================================================== -->
+        <!-- ============================================================== -->
+        <!-- Page wrapper  -->
+        <!-- ============================================================== -->
+        <div class="page-wrapper">
+            <!-- ============================================================== -->
+            <!-- Container fluid  -->
+            <!-- ============================================================== -->
+            <div class="container-fluid">
+				<!-- ============================================================== -->
+				<!-- ============================================================== -->
+				<!-- Start Page Content -->
+				<!-- ============================================================== -->
+				
+<div class="row pt-3 mb-3">
+	<div class="col">
+		<h3>Общие принципы</h3>
+	</div>
+</div>
+
+<div class="row">
+<div class="col-lg-6">
+  <div class="card">
+	  <div class="card-body">
+
+	  		<p class="mb-5">API принимает <span class="badge badge-primary">GET</span> и <span class="badge badge-primary">POST</span> HTTP запросы. В случае успешного запроса сервер отвечает статусом <span class="badge badge-success">200</span>.<br>
+	  		</p>
+
+	  		<p class="">Формат JSON ответа от сервера:</p>
+	  		<pre style="box-shadow:none;"><code>{
+	"data": {},
+	"errors": [],
+	"status": "ok"
+}</code></pre>
+<ul class="mb-5">
+	<li>data - [] или {}</li>
+	<li>errors - список ошибок</li>
+	<li>status - ok или bad</li>
+</ul>
+	       <p class="mb-5">При <a href="login.html">авторизации</a> система выдает sid, все последующие запросы выполняются передачей этого идентификатора. Cрок жизни идентификатора 15 минут. Обновлять его требуется только при получении ошибки <strong class="badge badge-danger">WrongSIDException</strong> в поле errors.</p>
+
+	       <p class="mb-1">Следующие сценарии будут расценены сервером как избыточные и могут блокироваться:
+
+<ul class="mb-5">
+	<li>
+		Переавторизация перед каждым запросом;
+	</li>
+    <li>
+        Частые запросы с одинаковыми параметрами со скоростью, превышающей максимальную скорость изменения данных в системе;
+    </li>
+</ul>
+           <p class="mb-5">Ошибка <strong class="badge badge-danger">DuplicateRequestException</strong> в поле errors говорит о том, что клиент повторяет один и тот же запрос слишком часто.</p>
+
+	       <p class="mb-5">Для обеспечения равномерной нагрузки на сетевое и серверное оборудование, компания SAURES оставляет за собой право ограничивать количество запросов в единицу времени, а также может создавать БАН листы IP адресов нарушителей. Необходимо использовать принцип необходимого и достаточного объема обмена данными с сервером!</p>
+
+	   </div>
+	</div>
+
+    <div class="card">
+            <div class="card-body">
+                <h4 class="card-title">Общая схема работы с API</h4>
+            </div>
+            <img class="card-img-bottom img-responsive p-3" src="https://api.saures.ru/img/request-scheme.svg" alt="Общая схема работы с API">
+    </div>
+</div>
+
+<div class="col-lg-6">
+  <div class="card">
+      <div class="card-body">
+
+<h4>Пример клиента на Python</h4>
+<p>Асинхронный клиент на aiohttp/python3.7+ с автоматическим обновлением sid'а анализом ошибок и 5ю повторами.</p>
+<pre><code>import asyncio
+from aiohttp import ClientSession, ClientOSError, ContentTypeError
+
+
+class APIClient:
+    API_URL = 'https://api.saures.ru/1.0'
+    request_attempts = 5  # кол-во попыток
+    sid = None
+
+    def __init__(self, email: str, password: str):
+        self._email = email
+        self._password = password
+        self._sid_renewal = False
+
+    async def request(self, method: str, url: str, **kwargs):
+        data = {}
+        data.update(kwargs)
+        for i in range(1, self.request_attempts + 1):
+            if self.sid:
+                data.update({'sid': self.sid})
+            try:
+                async with ClientSession() as session:
+                    async with session.request(
+                        method, self.API_URL + url,
+                        params=data if method == 'GET' else None,
+                        data=data if method == 'POST' else None,
+                    ) as request:
+                        response = await request.json()
+            except (ClientOSError, ContentTypeError):
+                if i == self.request_attempts:
+                    return False
+                await asyncio.sleep(60)
+            else:
+                if response.get('status') == 'ok':
+                    return response
+                errors = [e['name'] for e in response['errors']]
+                if 'WrongSIDException' in errors:
+                    if not self._sid_renewal:
+                        self.sid = None
+                    if i == self.request_attempts:
+                        return False
+                    await self.check_sid()
+                    continue
+                if 'DuplicateRequestException' in errors:
+                    if i == self.request_attempts:
+                        return False
+                    await asyncio.sleep(10)
+                    continue
+                return response
+        return False
+
+    async def update_sid(self):
+        if self._sid_renewal:
+            return False
+        self._sid_renewal = True
+        try:
+            response = await self.request(
+                'POST', '/login',
+                email=self._email, 
+                password=self._password
+            )
+            self.sid = response['data']['sid']
+        except:
+            self._sid_renewal = False
+            return False
+        else:
+            self._sid_renewal = False
+            return True
+
+    async def check_sid(self):
+        if self._sid_renewal:
+            while self._sid_renewal:
+                await asyncio.sleep(1)
+        elif not self.sid:
+            await self.update_sid()
+
+        if self.sid:
+            return True
+        return False
+
+    async def user_objects(self):
+        if await self.check_sid():
+            response = await self.request('GET', '/user/objects')
+            if response:
+                return response['data']
+
+
+async def main():
+    client = APIClient(email='demo@saures.ru', password='demo')
+    print(await client.user_objects())
+
+
+asyncio.run(main())</code></pre>
+
+      </div>
+  </div>
+</div>
+
+
+</div>
+
+				<!-- ============================================================== -->
+				<!-- End PAge Content -->
+				<!-- ============================================================== -->
+			</div>
+			<!-- ============================================================== -->
+			<!-- End Container fluid  -->
+			<!-- ============================================================== -->
+			<!-- ============================================================== -->
+            <!-- footer -->
+            <!-- ============================================================== -->
+            
+            <footer class="footer"> © 2025 SAURES - система
+				автоматизированного учета и контроля ресурсов 
+				
+            </footer>
+            <!-- ============================================================== -->
+            <!-- End footer -->
+            <!-- ============================================================== -->
+		</div>
+		<!-- ============================================================== -->
+		<!-- End Page wrapper  -->
+		<!-- ============================================================== -->
+	</div>
+	<!-- ============================================================== -->
+	<!-- End Wrapper -->
+	<!-- ============================================================== -->
+	<div class="modal" id="waitModal" tabindex="-1" role="dialog" aria-labelledby="waitModalLabel" aria-hidden="true">
+	  <div class="modal-dialog modal-dialog-centered" role="document">
+	    <div class="modal-content">
+	      <div class="modal-body">
+	    	<svg class="circular d-inline-block" style="position:relative;" viewBox="25 25 50 50">
+	      		<circle class="path" cx="50" cy="50" r="20" fill="none" stroke-width="2" stroke-miterlimit="10" />
+			</svg>
+	      	<p class="d-inline-block">Пожалуйста, подождите...</p>
+		  </div>
+	    </div>
+	  </div>
+	</div>
+	
+	<script src="../../js/jquery.min.js"></script>
+	<script src="../../js/popper.min.js"></script>
+	<script src="../../js/bootstrap.min.js"></script>
+	<script src="../../js/jquery.slimscroll.js"></script>
+	<script src="../../js/jquery.toast.js"></script>
+	<script src="../../js/waves.js"></script>
+	<script src="../../js/admin.sidebarmenu.js"></script>
+	<script src="../../js/sticky-kit.min.js"></script>
+	<script src="../../js/admin.min.js"></script>
+	
+	
+<!-- Google Tag Manager -->
+<script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
+new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
+j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
+'../../../www.googletagmanager.com/gtm5445.html?id='+i+dl;f.parentNode.insertBefore(j,f);
+})(window,document,'script','dataLayer','GTM-K3G97QR');</script>
+<!-- End Google Tag Manager -->
+<!-- Google Tag Manager (noscript) -->
+<noscript><iframe src="https://www.googletagmanager.com/ns.html?id=GTM-K3G97QR"
+height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
+<!-- End Google Tag Manager (noscript) -->
+
+</body>
+
+<!-- Mirrored from api.saures.ru/doc/1.0/ by HTTrack Website Copier/3.x [XR&CO'2014], Thu, 12 Jun 2025 14:35:50 GMT -->
+</html>

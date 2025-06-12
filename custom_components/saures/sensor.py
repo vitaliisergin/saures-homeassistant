@@ -50,6 +50,7 @@ async def async_setup_entry(
                 entities.extend([
                     SauresBatterySensor(coordinator, object_id, sensor),
                     SauresRSSISensor(coordinator, object_id, sensor),
+                    SauresAPIDiagnosticSensor(coordinator, object_id, sensor),
                 ])
                 
                 # Add meter sensors
@@ -219,6 +220,38 @@ class SauresWaterMeterSensor(SauresBaseEntity, SensorEntity):
                                         "unit": meter.get("unit"),
                                     }
         return {}
+
+
+class SauresAPIDiagnosticSensor(SauresBaseEntity, SensorEntity):
+    """API diagnostic sensor for monitoring errors and performance."""
+    
+    def __init__(self, coordinator, object_id: int, sensor: dict) -> None:
+        """Initialize API diagnostic sensor."""
+        super().__init__(coordinator, object_id, sensor)
+        
+        controller_name = f"Контроллер {sensor['sn']}"
+        self._attr_unique_id = f"{sensor['sn']}_api_status"
+        self._attr_name = f"{controller_name} API Status"
+        self._attr_icon = "mdi:api"
+        
+    @property
+    def native_value(self) -> str:
+        """Return API status."""
+        api_client = self.coordinator.api_client
+        stats = api_client.get_error_stats()
+        
+        if stats["total_errors"] == 0:
+            return "healthy"
+        elif stats["total_errors"] < 10:
+            return "warning"
+        else:
+            return "error"
+            
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return API statistics."""
+        api_client = self.coordinator.api_client
+        return api_client.get_error_stats()
 
 
  
