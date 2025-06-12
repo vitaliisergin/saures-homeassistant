@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -45,7 +44,6 @@ async def async_setup_entry(
                 entities.extend([
                     SauresBatterySensor(coordinator, object_id, sensor),
                     SauresRSSISensor(coordinator, object_id, sensor),
-                    SauresConnectionSensor(coordinator, object_id, sensor),
                 ])
                 
                 # Add meter sensors
@@ -70,9 +68,10 @@ class SauresBaseEntity(CoordinatorEntity):
         self._sensor = sensor
         
         # Device info
+        controller_name = f"Контроллер {sensor['sn']}"
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, sensor["sn"])},
-            name=sensor["name"],
+            name=controller_name,
             manufacturer="Saures",
             model=sensor.get("hardware", "R1"),
             sw_version=sensor.get("firmware"),
@@ -87,8 +86,9 @@ class SauresBatterySensor(SauresBaseEntity, SensorEntity):
         """Initialize battery sensor."""
         super().__init__(coordinator, object_id, sensor)
         
+        controller_name = f"Контроллер {sensor['sn']}"
         self._attr_unique_id = f"{sensor['sn']}_battery"
-        self._attr_name = f"{sensor['name']} Battery"
+        self._attr_name = f"{controller_name} Battery"
         self._attr_device_class = SensorDeviceClass.BATTERY
         self._attr_native_unit_of_measurement = PERCENTAGE
         self._attr_state_class = SensorStateClass.MEASUREMENT
@@ -112,8 +112,9 @@ class SauresRSSISensor(SauresBaseEntity, SensorEntity):
         """Initialize RSSI sensor."""
         super().__init__(coordinator, object_id, sensor)
         
+        controller_name = f"Контроллер {sensor['sn']}"
         self._attr_unique_id = f"{sensor['sn']}_rssi"
-        self._attr_name = f"{sensor['name']} Signal Strength"
+        self._attr_name = f"{controller_name} Signal Strength"
         self._attr_device_class = SensorDeviceClass.SIGNAL_STRENGTH
         self._attr_native_unit_of_measurement = SIGNAL_STRENGTH_DECIBELS_MILLIWATT
         self._attr_state_class = SensorStateClass.MEASUREMENT
@@ -132,34 +133,6 @@ class SauresRSSISensor(SauresBaseEntity, SensorEntity):
         return None
 
 
-class SauresConnectionSensor(SauresBaseEntity, SensorEntity):
-    """Last connection sensor."""
-    
-    def __init__(self, coordinator, object_id: int, sensor: dict) -> None:
-        """Initialize connection sensor."""
-        super().__init__(coordinator, object_id, sensor)
-        
-        self._attr_unique_id = f"{sensor['sn']}_last_connection"
-        self._attr_name = f"{sensor['name']} Last Connection"
-        self._attr_device_class = SensorDeviceClass.TIMESTAMP
-        
-    @property
-    def native_value(self) -> datetime | None:
-        """Return last connection time."""
-        if self.coordinator.data:
-            for obj_id, obj_data in self.coordinator.data["objects"].items():
-                if obj_id == self._object_id:
-                    for sensor in obj_data["sensors"]:
-                        if sensor["sn"] == self._sensor["sn"]:
-                            last_conn = sensor.get("last_connection")
-                            if last_conn:
-                                try:
-                                    return datetime.fromisoformat(last_conn.replace("Z", "+00:00"))
-                                except ValueError:
-                                    pass
-        return None
-
-
 class SauresWaterMeterSensor(SauresBaseEntity, SensorEntity):
     """Water meter sensor."""
     
@@ -172,8 +145,9 @@ class SauresWaterMeterSensor(SauresBaseEntity, SensorEntity):
         meter_type = "Холодная вода" if meter_type_num == 1 else "Горячая вода" if meter_type_num == 2 else "Unknown"
         meter_name = meter.get("meter_name") or meter_type
         
+        controller_name = f"Контроллер {sensor['sn']}"
         self._attr_unique_id = f"{sensor['sn']}_meter_{meter['meter_id']}"
-        self._attr_name = f"{sensor['name']} {meter_name}"
+        self._attr_name = f"{controller_name} {meter_name}"
         self._attr_device_class = SensorDeviceClass.WATER
         self._attr_native_unit_of_measurement = UnitOfVolume.CUBIC_METERS
         self._attr_state_class = SensorStateClass.TOTAL_INCREASING
