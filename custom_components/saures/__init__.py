@@ -7,7 +7,7 @@ from datetime import timedelta
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .api import SauresAPIClient
 from .const import DOMAIN
@@ -25,27 +25,25 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     
     api_client = SauresAPIClient(email, password)
     
-    # Test API connection
-    try:
-        objects = await api_client.user_objects()
-        if not objects:
-            _LOGGER.error("No objects found for user")
-            return False
-    except Exception as err:
-        _LOGGER.error("Failed to connect to Saures API: %s", err)
-        return False
-    
     # Create data coordinator
     coordinator = SauresDataUpdateCoordinator(hass, api_client)
-    await coordinator.async_config_entry_first_refresh()
     
+    # Store coordinator before first refresh
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN][entry.entry_id] = {
         "api_client": api_client,
         "coordinator": coordinator,
     }
     
+    # Setup platforms first
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    
+    # Try first refresh but don't fail setup if it doesn't work
+    try:
+        await coordinator.async_config_entry_first_refresh()
+        _LOGGER.info("Initial data fetch successful")
+    except Exception as err:
+        _LOGGER.warning("Initial data fetch failed, will retry later: %s", err)
     
     return True
 
@@ -75,6 +73,9 @@ class SauresDataUpdateCoordinator(DataUpdateCoordinator):
             # Get user objects
             objects = await self.api_client.user_objects()
             
+            if not objects:
+                raise UpdateFailed("No objects returned from API")
+            
             data = {"objects": {}}
             
             for obj in objects:
@@ -88,8 +89,9 @@ class SauresDataUpdateCoordinator(DataUpdateCoordinator):
                     "sensors": meters_data.get("sensors", [])
                 }
                 
+            _LOGGER.debug("Successfully updated data for %d objects", len(data["objects"]))
             return data
             
         except Exception as err:
             _LOGGER.error("Error updating Saures data: %s", err)
-            raise 
+            raise UpdateFailed(f"Error communicating with API: {err}") from err 

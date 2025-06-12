@@ -9,7 +9,7 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -34,10 +34,16 @@ async def async_setup_entry(
     data = hass.data[DOMAIN][config_entry.entry_id]
     coordinator = data["coordinator"]
     
-    entities = []
-    
-    # Get coordinator data
-    if coordinator.data:
+    @callback
+    def _add_entities():
+        """Add entities when coordinator data becomes available."""
+        if not coordinator.data:
+            _LOGGER.debug("No coordinator data available yet")
+            return
+            
+        entities = []
+        
+        _LOGGER.debug("Creating sensors from coordinator data...")
         for object_id, object_data in coordinator.data["objects"].items():
             for sensor in object_data["sensors"]:
                 # Add controller sensors
@@ -54,8 +60,29 @@ async def async_setup_entry(
                         entities.append(
                             SauresWaterMeterSensor(coordinator, object_id, sensor, meter)
                         )
+        
+        if entities:
+            _LOGGER.info("Adding %d sensors to Home Assistant", len(entities))
+            async_add_entities(entities)
+        else:
+            _LOGGER.warning("No sensors created - check API data")
     
-    async_add_entities(entities)
+    # Try to add entities immediately if data exists
+    if coordinator.data:
+        _LOGGER.debug("Coordinator data available, adding sensors immediately")
+        _add_entities()
+    else:
+        _LOGGER.debug("Coordinator data not ready, setting up listener")
+        # Add listener for when data becomes available
+        @callback
+        def _data_updated():
+            if coordinator.data:
+                _LOGGER.debug("Coordinator data became available, adding sensors")
+                # Remove this listener after first successful execution
+                remove_listener()
+                _add_entities()
+        
+        remove_listener = coordinator.async_add_listener(_data_updated)
 
 
 class SauresBaseEntity(CoordinatorEntity):

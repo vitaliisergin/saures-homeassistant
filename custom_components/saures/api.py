@@ -45,7 +45,7 @@ class SauresAPIClient:
                 _LOGGER.warning("Request error (attempt %d/%d): %s", i, REQUEST_ATTEMPTS, err)
                 if i == REQUEST_ATTEMPTS:
                     return False
-                await asyncio.sleep(60)
+                await asyncio.sleep(5)
             else:
                 if response.get("status") == "ok":
                     return response
@@ -78,21 +78,31 @@ class SauresAPIClient:
             
         self._sid_renewal = True
         try:
-            response = await self.request(
-                "POST", "/login",
-                email=self._email,
-                password=self._password
-            )
-            if response and isinstance(response, dict):
+            login_data = {
+                "email": self._email,
+                "password": self._password
+            }
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    API_URL + "/login",
+                    data=login_data
+                ) as request:
+                    response = await request.json()
+                    
+            if response.get("status") == "ok":
                 self._sid = response["data"]["sid"]
                 _LOGGER.debug("Successfully updated SID")
                 return True
+            else:
+                _LOGGER.error("Login failed: %s", response.get("errors"))
+                return False
+                
         except Exception as err:
             _LOGGER.error("Failed to update SID: %s", err)
+            return False
         finally:
             self._sid_renewal = False
-            
-        return False
         
     async def _check_sid(self) -> bool:
         """Check if SID is valid and update if needed."""
