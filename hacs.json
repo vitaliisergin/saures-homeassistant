@@ -1,0 +1,7 @@
+{
+  "name": "Saures Water Meters",
+  "hacs": "1.6.0",
+  "domains": ["saures"],
+  "iot_class": "Cloud Polling",
+  "homeassistant": "2024.1.0"
+} 
