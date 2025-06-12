@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 from datetime import timedelta
+import asyncio
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
@@ -23,6 +24,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     email = entry.data["email"]
     password = entry.data["password"]
     update_interval = entry.data.get("update_interval", 5)  # Default 5 minutes
+    
+    # Warn about very frequent updates to prevent rate limiting
+    if update_interval < 5:
+        _LOGGER.warning(
+            "Update interval %d minutes is very frequent, consider 5+ minutes to avoid rate limiting",
+            update_interval
+        )
     
     api_client = SauresAPIClient(email, password)
     
@@ -73,7 +81,7 @@ class SauresDataUpdateCoordinator(DataUpdateCoordinator):
         self.api_client = api_client
         
     async def _async_update_data(self):
-        """Update data via library."""
+        """Update data via library with parallel requests for better performance."""
         try:
             # Get user objects
             objects = await self.api_client.user_objects()
@@ -81,20 +89,46 @@ class SauresDataUpdateCoordinator(DataUpdateCoordinator):
             if not objects:
                 raise UpdateFailed("No objects returned from API")
             
-            data = {"objects": {}}
+            # Batch requests for all objects in parallel for better performance
+            _LOGGER.debug("Fetching meters data for %d objects in parallel", len(objects))
+            tasks = [
+                self.api_client.object_meters(obj["id"]) 
+                for obj in objects
+            ]
             
-            for obj in objects:
+            # Execute all requests concurrently
+            meters_results = await asyncio.gather(*tasks, return_exceptions=True)
+            
+            data = {"objects": {}}
+            successful_requests = 0
+            
+            for obj, meters_data in zip(objects, meters_results):
                 obj_id = obj["id"]
                 
-                # Get meters for each object
-                meters_data = await self.api_client.object_meters(obj_id)
+                if isinstance(meters_data, Exception):
+                    _LOGGER.warning("Failed to get meters for object %s: %s", obj_id, meters_data)
+                    # Still add object info even if meters fetch failed
+                    data["objects"][obj_id] = {
+                        "info": obj,
+                        "sensors": []
+                    }
+                    continue
                 
+                successful_requests += 1
                 data["objects"][obj_id] = {
                     "info": obj,
                     "sensors": meters_data.get("sensors", [])
                 }
                 
-            _LOGGER.debug("Successfully updated data for %d objects", len(data["objects"]))
+            _LOGGER.debug(
+                "Successfully updated data for %d objects (%d/%d requests successful)", 
+                len(data["objects"]), successful_requests, len(objects)
+            )
+            
+            # Fail only if no requests succeeded
+            if successful_requests == 0:
+                raise UpdateFailed("All API requests failed")
+                
             return data
             
         except Exception as err:

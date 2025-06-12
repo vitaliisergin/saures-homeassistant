@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import time
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -105,6 +106,31 @@ class SauresBaseEntity(CoordinatorEntity):
             sw_version=sensor.get("firmware"),
             serial_number=sensor["sn"],
         )
+        
+    def _get_sensor_data(self) -> dict | None:
+        """Get current sensor data from coordinator."""
+        if not self.coordinator.data:
+            return None
+            
+        obj_data = self.coordinator.data["objects"].get(self._object_id)
+        if not obj_data:
+            return None
+            
+        for sensor in obj_data["sensors"]:
+            if sensor["sn"] == self._sensor["sn"]:
+                return sensor
+        return None
+        
+    def _get_meter_data(self, meter_id: int) -> dict | None:
+        """Get current meter data from coordinator."""
+        sensor_data = self._get_sensor_data()
+        if not sensor_data:
+            return None
+            
+        for meter in sensor_data.get("meters", []):
+            if meter["meter_id"] == meter_id:
+                return meter
+        return None
 
 
 class SauresBatterySensor(SauresBaseEntity, SensorEntity):
@@ -124,12 +150,9 @@ class SauresBatterySensor(SauresBaseEntity, SensorEntity):
     @property
     def native_value(self) -> int | None:
         """Return battery level."""
-        if self.coordinator.data:
-            for obj_id, obj_data in self.coordinator.data["objects"].items():
-                if obj_id == self._object_id:
-                    for sensor in obj_data["sensors"]:
-                        if sensor["sn"] == self._sensor["sn"]:
-                            return sensor.get("bat")
+        sensor_data = self._get_sensor_data()
+        if sensor_data:
+            return sensor_data.get("bat")
         return None
 
 
@@ -150,14 +173,11 @@ class SauresRSSISensor(SauresBaseEntity, SensorEntity):
     @property
     def native_value(self) -> int | None:
         """Return RSSI value."""
-        if self.coordinator.data:
-            for obj_id, obj_data in self.coordinator.data["objects"].items():
-                if obj_id == self._object_id:
-                    for sensor in obj_data["sensors"]:
-                        if sensor["sn"] == self._sensor["sn"]:
-                            rssi = sensor.get("rssi")
-                            if rssi and rssi.lstrip("-").isdigit():
-                                return int(rssi)
+        sensor_data = self._get_sensor_data()
+        if sensor_data:
+            rssi = sensor_data.get("rssi")
+            if rssi and rssi.lstrip("-").isdigit():
+                return int(rssi)
         return None
 
 
@@ -183,42 +203,32 @@ class SauresWaterMeterSensor(SauresBaseEntity, SensorEntity):
     @property
     def native_value(self) -> float | None:
         """Return meter reading."""
-        if self.coordinator.data:
-            for obj_id, obj_data in self.coordinator.data["objects"].items():
-                if obj_id == self._object_id:
-                    for sensor in obj_data["sensors"]:
-                        if sensor["sn"] == self._sensor["sn"]:
-                            for meter in sensor.get("meters", []):
-                                if meter["meter_id"] == self._meter["meter_id"]:
-                                    vals = meter.get("vals", [])
-                                    if vals and len(vals) > 0:
-                                        return float(vals[0])
+        meter_data = self._get_meter_data(self._meter["meter_id"])
+        if meter_data:
+            vals = meter_data.get("vals", [])
+            if vals and len(vals) > 0:
+                return float(vals[0])
         return None
         
     @property
     def extra_state_attributes(self) -> dict:
         """Return additional attributes."""
-        if self.coordinator.data:
-            for obj_id, obj_data in self.coordinator.data["objects"].items():
-                if obj_id == self._object_id:
-                    for sensor in obj_data["sensors"]:
-                        if sensor["sn"] == self._sensor["sn"]:
-                            for meter in sensor.get("meters", []):
-                                if meter["meter_id"] == self._meter["meter_id"]:
-                                    state_info = meter.get("state", {})
-                                    state_name = DEVICE_STATES.get(
-                                        state_info.get("number"), 
-                                        state_info.get("name", "Unknown")
-                                    )
-                                    
-                                    return {
-                                        "meter_id": meter["meter_id"],
-                                        "serial_number": meter.get("sn"),
-                                        "input": meter.get("input"),
-                                        "state": state_name,
-                                        "state_number": state_info.get("number"),
-                                        "unit": meter.get("unit"),
-                                    }
+        meter_data = self._get_meter_data(self._meter["meter_id"])
+        if meter_data:
+            state_info = meter_data.get("state", {})
+            state_name = DEVICE_STATES.get(
+                state_info.get("number"), 
+                state_info.get("name", "Unknown")
+            )
+            
+            return {
+                "meter_id": meter_data["meter_id"],
+                "serial_number": meter_data.get("sn"),
+                "input": meter_data.get("input"),
+                "state": state_name,
+                "state_number": state_info.get("number"),
+                "unit": meter_data.get("unit"),
+            }
         return {}
 
 
@@ -240,18 +250,35 @@ class SauresAPIDiagnosticSensor(SauresBaseEntity, SensorEntity):
         api_client = self.coordinator.api_client
         stats = api_client.get_error_stats()
         
-        if stats["total_errors"] == 0:
+        # Determine status based on error counts and timing
+        total_errors = stats["total_errors"]
+        rate_limit_errors = stats["rate_limit_errors"]
+        last_error_time = stats.get("last_error_time", 0)
+        time_since_error = time.time() - last_error_time if last_error_time > 0 else float('inf')
+        
+        if total_errors == 0 or time_since_error > 3600:  # No errors or errors older than 1 hour
             return "healthy"
-        elif stats["total_errors"] < 10:
+        elif rate_limit_errors > 0 or total_errors > 20:  # Rate limiting or many errors
+            return "critical"
+        elif total_errors > 5:  # Some errors
             return "warning"
         else:
-            return "error"
+            return "healthy"
             
     @property
     def extra_state_attributes(self) -> dict:
         """Return API statistics."""
         api_client = self.coordinator.api_client
-        return api_client.get_error_stats()
+        stats = api_client.get_error_stats()
+        
+        # Add time since last error for better monitoring
+        last_error_time = stats.get("last_error_time", 0)
+        if last_error_time > 0:
+            stats["time_since_last_error"] = int(time.time() - last_error_time)
+        else:
+            stats["time_since_last_error"] = None
+            
+        return stats
 
 
  

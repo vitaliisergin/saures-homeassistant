@@ -6,6 +6,7 @@ import logging
 import time
 from typing import Any, Optional
 from datetime import datetime, timedelta
+from collections import OrderedDict
 
 import aiohttp
 from aiohttp import ClientOSError, ContentTypeError, ClientSession
@@ -15,8 +16,43 @@ from .const import API_URL, REQUEST_ATTEMPTS
 _LOGGER = logging.getLogger(__name__)
 
 
+class LRUCache:
+    """LRU Cache with size limit to prevent memory leaks."""
+    
+    def __init__(self, maxsize: int = 100) -> None:
+        """Initialize LRU cache with maximum size."""
+        self.cache = OrderedDict()
+        self.maxsize = maxsize
+        
+    def get(self, key: str) -> dict | None:
+        """Get item from cache and move to end (most recently used)."""
+        if key in self.cache:
+            self.cache.move_to_end(key)
+            return self.cache[key]
+        return None
+        
+    def set(self, key: str, value: dict) -> None:
+        """Set item in cache, remove oldest if size exceeded."""
+        if key in self.cache:
+            self.cache.move_to_end(key)
+        elif len(self.cache) >= self.maxsize:
+            # Remove least recently used item
+            oldest_key = next(iter(self.cache))
+            del self.cache[oldest_key]
+            _LOGGER.debug("Removed oldest cache entry: %s", oldest_key)
+        self.cache[key] = value
+        
+    def clear(self) -> None:
+        """Clear all cache entries."""
+        self.cache.clear()
+        
+    def size(self) -> int:
+        """Get current cache size."""
+        return len(self.cache)
+
+
 class SauresAPIClient:
-    """Optimized Saures API client with session reuse, caching and proper error handling."""
+    """Optimized Saures API client with session reuse, LRU caching and proper error handling."""
     
     def __init__(self, email: str, password: str) -> None:
         """Initialize the API client."""
@@ -31,8 +67,8 @@ class SauresAPIClient:
         self._sid_expires = None
         self._sid_renewal = False
         
-        # Cache for data with TTL
-        self._cache = {}
+        # LRU Cache for data with size limit
+        self._cache = LRUCache(maxsize=50)  # Limit to 50 entries
         
         # Error monitoring
         self._error_count = 0
@@ -48,9 +84,11 @@ class SauresAPIClient:
         return self._session
         
     async def close(self) -> None:
-        """Close HTTP session."""
+        """Close HTTP session and clear cache."""
         if self._session and not self._session.closed:
             await self._session.close()
+        self._cache.clear()
+        _LOGGER.debug("API client closed and cache cleared")
             
     def _is_sid_valid(self) -> bool:
         """Check if current SID is still valid (within 15 minutes TTL)."""
@@ -72,17 +110,25 @@ class SauresAPIClient:
         if not cache_entry:
             return False
         cache_time = cache_entry.get("timestamp", 0)
-        return time.time() - cache_time < ttl_minutes * 60
+        ttl_remaining = ttl_minutes * 60 - (time.time() - cache_time)
+        
+        if ttl_remaining > 0:
+            _LOGGER.debug("Cache hit, TTL remaining: %.1f seconds", ttl_remaining)
+            return True
+        return False
         
     async def request(self, method: str, url: str, use_cache: bool = True, cache_ttl: int = 5, **kwargs) -> dict[str, Any] | bool:
-        """Make API request with retry logic, caching and exponential backoff."""
+        """Make API request with retry logic, LRU caching and exponential backoff."""
         
         # Check cache first
         cache_key = self._get_cache_key(method, url, **kwargs)
-        if use_cache and cache_key in self._cache:
-            cached = self._cache[cache_key]
-            if self._is_cache_valid(cached, cache_ttl):
-                _LOGGER.debug("Using cached data for %s", cache_key)
+        if use_cache:
+            cached = self._cache.get(cache_key)
+            if cached and self._is_cache_valid(cached, cache_ttl):
+                _LOGGER.debug("Using cached data", extra={
+                    "cache_key": cache_key[:50],  # Truncate for readability
+                    "cache_size": self._cache.size()
+                })
                 return cached["data"]
                 
         data = {}
@@ -109,11 +155,12 @@ class SauresAPIClient:
                 self._last_error_time = time.time()
                 
                 if attempt == REQUEST_ATTEMPTS:
-                    # Return cached data if available as fallback
-                    if cache_key in self._cache:
-                        cached = self._cache[cache_key]
-                        _LOGGER.warning("API unavailable, using stale cached data")
-                        return cached["data"]
+                    # Return stale cached data if available as fallback
+                    if use_cache:
+                        cached = self._cache.get(cache_key)
+                        if cached:
+                            _LOGGER.warning("API unavailable, using stale cached data")
+                            return cached["data"]
                     return False
                     
                 # Exponential backoff for network errors
@@ -132,10 +179,10 @@ class SauresAPIClient:
             if response.get("status") == "ok":
                 # Cache successful response
                 if use_cache:
-                    self._cache[cache_key] = {
+                    self._cache.set(cache_key, {
                         "data": response,
                         "timestamp": time.time()
-                    }
+                    })
                     
                 # Reset error counters on success
                 if self._error_count > 0:
@@ -161,7 +208,10 @@ class SauresAPIClient:
                 
             if "DuplicateRequestException" in errors:
                 self._duplicate_errors += 1
-                _LOGGER.warning("Duplicate request detected (count: %d)", self._duplicate_errors)
+                _LOGGER.warning("Duplicate request detected", extra={
+                    "count": self._duplicate_errors,
+                    "cache_key": cache_key[:50]
+                })
                 
                 if attempt == REQUEST_ATTEMPTS:
                     return False
@@ -173,7 +223,10 @@ class SauresAPIClient:
             # Check for rate limiting indicators
             if any(error in ["TooManyRequestsException", "RateLimitException"] for error in errors):
                 self._rate_limit_errors += 1
-                _LOGGER.warning("Rate limit hit (count: %d)", self._rate_limit_errors)
+                _LOGGER.warning("Rate limit hit", extra={
+                    "count": self._rate_limit_errors,
+                    "backoff_attempt": attempt
+                })
                 
                 # Longer delay for rate limiting
                 delay = self._calculate_backoff_delay(attempt, 30.0)
@@ -229,11 +282,17 @@ class SauresAPIClient:
     async def _check_sid(self) -> bool:
         """Check if SID is valid and update if needed."""
         if self._sid_renewal:
-            # Wait for ongoing renewal
+            # Wait for ongoing renewal with timeout
             timeout = 30  # 30 second timeout
             start_time = time.time()
             while self._sid_renewal and (time.time() - start_time) < timeout:
                 await asyncio.sleep(0.5)
+                
+            # Check if timeout exceeded
+            if time.time() - start_time >= timeout:
+                _LOGGER.error("SID renewal timeout exceeded")
+                self._sid_renewal = False
+                return False
                 
         if not self._is_sid_valid():
             await self._update_sid()
@@ -296,5 +355,6 @@ class SauresAPIClient:
             "last_error_time": self._last_error_time,
             "sid_valid": self._is_sid_valid(),
             "sid_expires": self._sid_expires.isoformat() if self._sid_expires else None,
-            "cache_entries": len(self._cache)
+            "cache_entries": self._cache.size(),
+            "cache_max_size": self._cache.maxsize
         }

@@ -37,15 +37,18 @@ async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str,
         objects = await api_client.user_objects()
         if not objects:
             raise InvalidAuth("No objects found")
+            
+        # Return info that you want to store in the config entry.
+        return {
+            "title": f"Saures ({data['email']})",
+            "objects_count": len(objects)
+        }
     except Exception as err:
         _LOGGER.error("Failed to connect: %s", err)
         raise CannotConnect from err
-    
-    # Return info that you want to store in the config entry.
-    return {
-        "title": f"Saures ({data['email']})",
-        "objects_count": len(objects)
-    }
+    finally:
+        # Always close the API client to free resources
+        await api_client.close()
 
 
 class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
