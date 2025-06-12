@@ -24,7 +24,7 @@
 1. Убедитесь что у вас установлен [HACS](https://hacs.xyz/)
 2. Добавьте этот репозиторий как пользовательский:
    - HACS → Интеграции → ⋮ → Пользовательские репозитории
-   - URL: `https://github.com/USERNAME/saures-homeassistant`
+   - URL: `https://github.com/vitaliisergin/saures-homeassistant`
    - Категория: Интеграция
 3. Найдите "Saures Water Meters" в HACS и установите
 4. Перезапустите Home Assistant
@@ -83,8 +83,8 @@
 
 ## Поддержка
 
-- [Issues](https://github.com/USERNAME/saures-homeassistant/issues) - сообщения об ошибках
-- [Discussions](https://github.com/USERNAME/saures-homeassistant/discussions) - вопросы и предложения
+- [Issues](https://github.com/vitaliisergin/saures-homeassistant/issues) - сообщения об ошибках
+- [Discussions](https://github.com/vitaliisergin/saures-homeassistant/discussions) - вопросы и предложения
 
 ## Лицензия
 
@@ -92,13 +92,9 @@ MIT License - см. [LICENSE](LICENSE) файл.
 
 ## Changelog
 
-### v1.1.0
-- Упрощенная версия только для счетчиков воды
-- Убрано управление кранами и датчики протечки  
-- Улучшена стабильность и производительность
-
-### v1.0.0
-- Первый релиз
-- Базовая поддержка счетчиков воды
-- Мониторинг состояния контроллеров
-- Настройка через Config Flow 
+### v1.0
+- Первый стабильный релиз
+- Поддержка счетчиков холодной и горячей воды
+- Мониторинг состояния контроллеров (батарея, RSSI, последнее подключение)
+- Настройка через Config Flow
+- Автоматическое обновление сессии API 
