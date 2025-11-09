@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 import logging
+import time
 from datetime import timedelta
 import asyncio
 
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
@@ -25,35 +27,34 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     password = entry.data["password"]
     update_interval = entry.data.get("update_interval", DEFAULT_UPDATE_INTERVAL_MINUTES)
 
-    # Warn about very frequent updates to prevent rate limiting
-    if update_interval < 10:
+    # Warn about very frequent updates to prevent rate limiting and API bans
+    if update_interval < 60:
         _LOGGER.warning(
-            "Update interval %d minutes is frequent, consider 15+ minutes to avoid rate limiting",
+            "Update interval %d minutes is below recommended minimum. "
+            "Consider using 60+ minutes (1 hour) to avoid API rate limiting and possible IP bans. "
+            "Saures API may block frequent requests.",
             update_interval
         )
     
     api_client = SauresAPIClient(email, password)
-    
-    # Create data coordinator
     coordinator = SauresDataUpdateCoordinator(hass, api_client, update_interval)
-    
-    # Store coordinator before first refresh
+
+    try:
+        await coordinator.async_config_entry_first_refresh()
+        _LOGGER.info("Initial data fetch successful")
+    except Exception as err:
+        _LOGGER.warning("Initial data fetch failed: %s", err)
+        await api_client.close()
+        raise ConfigEntryNotReady(err) from err
+
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN][entry.entry_id] = {
         "api_client": api_client,
         "coordinator": coordinator,
     }
-    
-    # Setup platforms first
+
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-    
-    # Try first refresh but don't fail setup if it doesn't work
-    try:
-        await coordinator.async_config_entry_first_refresh()
-        _LOGGER.info("Initial data fetch successful")
-    except Exception as err:
-        _LOGGER.warning("Initial data fetch failed, will retry later: %s", err)
-    
+
     return True
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -83,6 +84,9 @@ class SauresDataUpdateCoordinator(DataUpdateCoordinator):
     async def _async_update_data(self):
         """Update data via library with staggered requests to avoid rate limiting."""
         try:
+            update_start = time.time()
+            _LOGGER.info("Starting scheduled data update")
+
             # Get user objects
             objects = await self.api_client.user_objects()
 
@@ -127,9 +131,20 @@ class SauresDataUpdateCoordinator(DataUpdateCoordinator):
                         "sensors": []
                     }
 
-            _LOGGER.debug(
-                "Successfully updated data for %d objects (%d/%d requests successful)",
-                len(data["objects"]), successful_requests, len(objects)
+            update_duration = time.time() - update_start
+            api_stats = self.api_client.get_error_stats()
+
+            _LOGGER.info(
+                "Update completed in %.1fs: %d/%d objects successful | "
+                "API stats - errors: %d, rate limits: %d, cache: %d/%d entries, SID valid: %s",
+                update_duration,
+                successful_requests,
+                len(objects),
+                api_stats["total_errors"],
+                api_stats["rate_limit_errors"],
+                api_stats["cache_entries"],
+                api_stats["cache_max_size"],
+                api_stats["sid_valid"]
             )
 
             # Fail only if no requests succeeded

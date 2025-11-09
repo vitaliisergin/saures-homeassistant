@@ -1,6 +1,6 @@
 """Constants for the Saures integration."""
 
-DOMAIN = "saures"
+DOMAIN = "saures_home"
 
 # API settings
 API_URL = "https://api.saures.ru/1.0"
@@ -28,11 +28,11 @@ DEVICE_STATES = {
 }
 
 # Update intervals (in seconds)
-DEFAULT_UPDATE_INTERVAL = 900  # 15 minutes
+DEFAULT_UPDATE_INTERVAL = 3600  # 60 minutes (1 hour - recommended to prevent API rate limiting)
 BATTERY_UPDATE_INTERVAL = 3600  # 1 hour
 STATISTICS_IMPORT_INTERVAL = 86400  # 24 hours (once per day)
 
 # Update interval limits (in minutes)
-MIN_UPDATE_INTERVAL = 5  # 5 minutes (to prevent rate limiting)
+MIN_UPDATE_INTERVAL = 60  # 60 minutes (1 hour - to prevent API rate limiting and bans)
 MAX_UPDATE_INTERVAL = 1440  # 24 hours
-DEFAULT_UPDATE_INTERVAL_MINUTES = 15  # Default interval in minutes for config flow 
+DEFAULT_UPDATE_INTERVAL_MINUTES = 60  # Default interval in minutes for config flow (1 hour recommended) 

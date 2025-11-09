@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import time
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -75,59 +76,58 @@ async def async_setup_entry(
     data = hass.data[DOMAIN][config_entry.entry_id]
     coordinator = data["coordinator"]
     
+    known_entity_ids: set[str] = set()
+
     @callback
-    def _add_entities():
-        """Add entities when coordinator data becomes available."""
+    def _collect_new_entities() -> None:
+        """Create and add new entities based on latest coordinator data."""
         if not coordinator.data:
             _LOGGER.debug("No coordinator data available yet")
             return
-            
-        entities = []
-        
-        _LOGGER.debug("Creating sensors from coordinator data...")
+
+        new_entities: list[SensorEntity] = []
+
+        _LOGGER.debug("Evaluating coordinator data for new sensors...")
         for object_id, object_data in coordinator.data["objects"].items():
             for sensor in object_data["sensors"]:
-                # Add controller sensors
-                entities.extend([
+                controller_entities = [
                     SauresBatterySensor(coordinator, object_id, sensor),
                     SauresRSSISensor(coordinator, object_id, sensor),
                     SauresLastConnectionSensor(coordinator, object_id, sensor),
                     SauresRequestDateSensor(coordinator, object_id, sensor),
                     SauresReadoutDateSensor(coordinator, object_id, sensor),
                     SauresAPIDiagnosticSensor(coordinator, object_id, sensor),
-                ])
-                
-                # Add meter sensors
+                ]
+
+                for entity in controller_entities:
+                    if entity.unique_id not in known_entity_ids:
+                        known_entity_ids.add(entity.unique_id)
+                        new_entities.append(entity)
+
                 for meter in sensor.get("meters", []):
                     meter_type = meter.get("type", {}).get("number")
-                    
-                    if meter_type in [1, 2]:  # Water meters only
-                        entities.append(
-                            SauresWaterMeterSensor(coordinator, object_id, sensor, meter)
-                        )
-        
-        if entities:
-            _LOGGER.info("Adding %d sensors to Home Assistant", len(entities))
-            async_add_entities(entities)
-        else:
-            _LOGGER.warning("No sensors created - check API data")
-    
+                    if meter_type not in [1, 2]:
+                        continue
+
+                    meter_entity = SauresWaterMeterSensor(coordinator, object_id, sensor, meter)
+                    if meter_entity.unique_id not in known_entity_ids:
+                        known_entity_ids.add(meter_entity.unique_id)
+                        new_entities.append(meter_entity)
+
+        if new_entities:
+            _LOGGER.info("Adding %d new sensors to Home Assistant", len(new_entities))
+            async_add_entities(new_entities)
+
+    # Register listener to add sensors when coordinator updates
+    remove_listener = coordinator.async_add_listener(_collect_new_entities)
+    config_entry.async_on_unload(remove_listener)
+
     # Try to add entities immediately if data exists
-    if coordinator.data:
-        _LOGGER.debug("Coordinator data available, adding sensors immediately")
-        _add_entities()
-    else:
-        _LOGGER.debug("Coordinator data not ready, setting up listener")
-        # Add listener for when data becomes available
-        @callback
-        def _data_updated():
-            if coordinator.data:
-                _LOGGER.debug("Coordinator data became available, adding sensors")
-                # Remove this listener after first successful execution
-                remove_listener()
-                _add_entities()
-        
-        remove_listener = coordinator.async_add_listener(_data_updated)
+    _collect_new_entities()
+
+    # If данные ещё не получены, запросим обновление после регистрации слушателей
+    if not coordinator.data:
+        await coordinator.async_request_refresh()
 
 
 class SauresBaseEntity(CoordinatorEntity):
@@ -361,7 +361,7 @@ class SauresWaterMeterSensor(SauresBaseEntity, SensorEntity):
         await super().async_added_to_hass()
 
         # Import historical statistics on first setup (last 7 days)
-        await self._async_import_statistics(initial=True)
+        self.hass.async_create_task(self._async_import_statistics(initial=True))
 
         # Schedule daily statistics import (once per 24 hours)
         async def _daily_import(_):
@@ -378,7 +378,19 @@ class SauresWaterMeterSensor(SauresBaseEntity, SensorEntity):
         """Import statistics from Saures API to Home Assistant."""
         try:
             meter_id = self._meter["meter_id"]
-            statistic_id = f"{DOMAIN}:{self._attr_unique_id}"
+            
+            # For external statistics, use format: "domain:object_id"
+            # statistic_id MUST be lowercase and contain only [a-z0-9_:] (Home Assistant requirement)
+            # Clean unique_id: convert to lowercase and ensure only valid characters
+            clean_object_id = re.sub(r'[^a-z0-9_]', '_', self._attr_unique_id.lower())
+            statistic_id = f"{DOMAIN}:{clean_object_id}"
+            
+            _LOGGER.info(
+                "Importing statistics for meter %s: statistic_id=%s, unique_id=%s",
+                meter_id,
+                statistic_id,
+                self._attr_unique_id
+            )
 
             # Determine time range for import
             if initial:
@@ -392,7 +404,12 @@ class SauresWaterMeterSensor(SauresBaseEntity, SensorEntity):
                 else:
                     # Fallback: check database for last recorded statistic
                     last_stats = await get_instance(self.hass).async_add_executor_job(
-                        get_last_statistics, self.hass, 1, statistic_id, True, set()
+                        get_last_statistics,
+                        self.hass,
+                        1,
+                        statistic_id,
+                        include_start_time=True,
+                        types=set(),
                     )
 
                     if last_stats and statistic_id in last_stats:
@@ -420,74 +437,177 @@ class SauresWaterMeterSensor(SauresBaseEntity, SensorEntity):
                 absolute=True  # Get absolute meter readings for TOTAL_INCREASING sensor
             )
 
-            # API may return data in "vals" or "points" field depending on version/endpoint
-            vals = meter_data.get("vals") or meter_data.get("points")
+            raw_vals = meter_data.get("vals")
+            raw_points = meter_data.get("points")
+            raw_times = meter_data.get("times") or meter_data.get("datetimes") or meter_data.get("dates")
 
-            if not vals:
-                _LOGGER.debug("No historical data returned from API for meter %s (no vals/points)", meter_id)
+            _LOGGER.debug(
+                "Meter %s API response: points=%s, vals=%s, times=%s, full_data=%s",
+                meter_id,
+                type(raw_points).__name__ if raw_points else None,
+                type(raw_vals).__name__ if raw_vals else None,
+                type(raw_times).__name__ if raw_times else None,
+                meter_data
+            )
+
+            samples: list[tuple[float, float]] = []
+
+            def _normalize_value(raw_value: float | str | int | list | tuple | None) -> float | None:
+                """Convert Saures value representations to float."""
+                if raw_value is None:
+                    return None
+
+                candidate = raw_value
+
+                if isinstance(candidate, (list, tuple)):
+                    if not candidate:
+                        return None
+                    candidate = candidate[0]
+
+                try:
+                    return float(candidate)
+                except (ValueError, TypeError):
+                    return None
+
+            def _append_sample(raw_time: str | None, raw_value: float | str | int | list | tuple | None) -> None:
+                """Validate and append a single sample if possible."""
+                if raw_time is None:
+                    return
+
+                point_time = _parse_saures_datetime(str(raw_time), self.hass)
+                if not point_time:
+                    return
+
+                value = _normalize_value(raw_value)
+                if value is None:
+                    return
+
+                samples.append((point_time.timestamp(), value))
+
+            if isinstance(raw_points, list):
+                for point in raw_points:
+                    try:
+                        if isinstance(point, dict):
+                            time_field = point.get("time") or point.get("datetime") or point.get("start")
+                            value_field = point.get("val") or point.get("value") or point.get("vals")
+                            _append_sample(time_field, value_field)
+                        elif isinstance(point, (list, tuple)) and len(point) >= 2:
+                            _append_sample(point[0], point[1])
+                    except Exception as err:  # pylint: disable=broad-except
+                        _LOGGER.debug("Failed to parse point %s: %s", point, err)
+                        continue
+
+            if isinstance(raw_vals, list):
+                if raw_vals and isinstance(raw_vals[0], dict):
+                    for entry in raw_vals:
+                        try:
+                            time_field = entry.get("time") or entry.get("datetime") or entry.get("start")
+                            value_field = entry.get("val") or entry.get("value") or entry.get("vals")
+                            _append_sample(time_field, value_field)
+                        except Exception as err:  # pylint: disable=broad-except
+                            _LOGGER.debug("Failed to parse val entry %s: %s", entry, err)
+                            continue
+                else:
+                    if raw_times and len(raw_times) == len(raw_vals):
+                        for idx, value in enumerate(raw_vals):
+                            time_field = raw_times[idx]
+                            _append_sample(time_field, value)
+                    else:
+                        _LOGGER.debug(
+                            "Skipping vals for meter %s: missing or mismatched times (vals=%d, times=%s)",
+                            meter_id,
+                            len(raw_vals),
+                            len(raw_times) if isinstance(raw_times, list) else "none",
+                        )
+
+            if not samples:
+                _LOGGER.warning(
+                    "No valid statistics to import for meter %s. API returned: points=%s (len=%d), vals=%s (len=%s), times=%s (len=%s). "
+                    "Check if API response format matches documentation.",
+                    meter_id,
+                    raw_points is not None,
+                    len(raw_points) if isinstance(raw_points, list) else 0,
+                    raw_vals is not None,
+                    len(raw_vals) if isinstance(raw_vals, list) else 0,
+                    raw_times is not None,
+                    len(raw_times) if isinstance(raw_times, list) else 0,
+                )
                 return
 
-            _LOGGER.info("Importing %d data points for meter %s", len(vals), meter_id)
+            samples.sort(key=lambda item: item[0])
 
-            # Prepare statistics metadata
+            _LOGGER.info("Parsed %d samples from API for meter %s", len(samples), meter_id)
+
+            # Create metadata according to HA 2025.10+ API changes
+            # https://developers.home-assistant.io/blog/2025/10/16/recorder-statistics-api-changes/
+            # StatisticMetaData requires: unit_class and mean_type (both mandatory as of Oct 2025)
             metadata = StatisticMetaData(
                 has_mean=False,
                 has_sum=True,
                 name=self._attr_name,
                 source=DOMAIN,
                 statistic_id=statistic_id,
-                unit_of_measurement=UnitOfVolume.CUBIC_METERS,
+                unit_of_measurement="m³",
+            )
+            
+            # Add required fields for HA 2025.10+ as dict (StatisticMetaData is TypedDict)
+            if isinstance(metadata, dict):
+                metadata["unit_class"] = None  # No unit conversion for water meters
+                metadata["mean_type"] = 0  # 0 = no mean (for TOTAL_INCREASING sensors)
+            else:
+                # If StatisticMetaData is not a dict, create as dict
+                metadata = {
+                    "has_mean": False,
+                    "has_sum": True,
+                    "name": self._attr_name,
+                    "source": DOMAIN,
+                    "statistic_id": statistic_id,
+                    "unit_of_measurement": "m³",
+                    "unit_class": None,  # No unit conversion
+                    "mean_type": 0,  # 0 = no mean
+                }
+
+            # Home Assistant requires timestamps to be at the top of the hour
+            # (minutes and seconds must be 0)
+            statistics = [
+                StatisticData(
+                    start=dt_util.utc_from_timestamp(timestamp).replace(minute=0, second=0, microsecond=0),
+                    state=value,
+                    sum=value,
+                )
+                for timestamp, value in samples
+            ]
+
+            # Log what we're about to import
+            _LOGGER.info(
+                "Attempting to import statistics: statistic_id=%s, source=%s, samples=%d, "
+                "time_range=%s to %s",
+                statistic_id,
+                DOMAIN,
+                len(statistics),
+                statistics[0]["start"].isoformat() if statistics else "N/A",
+                statistics[-1]["start"].isoformat() if statistics else "N/A"
             )
 
-            # Convert API data to Home Assistant statistics format
-            statistics = []
-            for point in vals:
-                if not isinstance(point, dict):
-                    continue
-
-                try:
-                    # API may use different field names: "time"/"datetime" for timestamp, "val"/"value" for reading
-                    time_field = point.get("time") or point.get("datetime")
-                    value_field = point.get("val") or point.get("value")
-
-                    if not time_field or value_field is None:
-                        continue
-
-                    # Parse time from API format, ensure timezone awareness
-                    point_time = _parse_saures_datetime(time_field, self.hass)
-                    if not point_time:
-                        continue
-
-                    point_timestamp = point_time.timestamp()
-                    point_value = float(value_field)
-
-                    statistics.append(
-                        StatisticData(
-                            start=point_timestamp,
-                            state=point_value,
-                            sum=point_value,
-                        )
-                    )
-                except (ValueError, KeyError, TypeError) as err:
-                    _LOGGER.warning("Failed to parse data point: %s, error: %s", point, err)
-                    continue
-
-            if not statistics:
-                _LOGGER.debug("No valid statistics to import for meter %s", meter_id)
-                return
-
             # Import statistics to Home Assistant
-            async_add_external_statistics(self.hass, metadata, statistics)
+            # Pass mean_type parameter for HA 2026.11+ compatibility
+            try:
+                async_add_external_statistics(self.hass, metadata, statistics, mean_type=None)
+            except TypeError:
+                # Fallback for older HA versions that don't support mean_type parameter
+                async_add_external_statistics(self.hass, metadata, statistics)
 
-            # Update last import time
-            self._last_import_time = datetime.now()
+            # Update last import time to the newest sample timestamp
+            self._last_import_time = statistics[-1]["start"]
 
             _LOGGER.info(
-                "Successfully imported %d statistics for meter %s (from %s to %s)",
+                "Successfully imported %d statistics for meter %s (statistic_id=%s, source=%s, from %s to %s)",
                 len(statistics),
                 meter_id,
-                statistics[0].start if statistics else "N/A",
-                statistics[-1].start if statistics else "N/A"
+                statistic_id,
+                DOMAIN,
+                statistics[0]["start"].isoformat() if statistics else "N/A",
+                statistics[-1]["start"].isoformat() if statistics else "N/A"
             )
 
         except Exception as err:

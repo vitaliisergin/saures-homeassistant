@@ -125,16 +125,24 @@ class SauresAPIClient:
         if use_cache:
             cached = self._cache.get(cache_key)
             if cached and self._is_cache_valid(cached, cache_ttl):
-                _LOGGER.debug("Using cached data", extra={
-                    "cache_key": cache_key[:50],  # Truncate for readability
-                    "cache_size": self._cache.size()
-                })
+                cache_age = int(time.time() - cached.get("timestamp", 0))
+                _LOGGER.debug(
+                    "Cache HIT for %s (age: %ds, ttl: %dm, size: %d/%d)",
+                    url, cache_age, cache_ttl, self._cache.size(), self._cache.maxsize
+                )
                 return cached["data"]
+            elif cached:
+                cache_age = int(time.time() - cached.get("timestamp", 0))
+                _LOGGER.debug(
+                    "Cache EXPIRED for %s (age: %ds, ttl: %dm)",
+                    url, cache_age, cache_ttl
+                )
                 
-        data = {}
-        data.update(kwargs)
-        
+        base_data = dict(kwargs)
+
         for attempt in range(1, REQUEST_ATTEMPTS + 1):
+            data = dict(base_data)
+
             # Add SID if available and valid
             if self._is_sid_valid():
                 data.update({"sid": self._sid})
@@ -153,7 +161,7 @@ class SauresAPIClient:
                 _LOGGER.warning("Network error (attempt %d/%d): %s", attempt, REQUEST_ATTEMPTS, err)
                 self._error_count += 1
                 self._last_error_time = time.time()
-                
+
                 if attempt == REQUEST_ATTEMPTS:
                     # Return stale cached data if available as fallback
                     if use_cache:
@@ -162,10 +170,10 @@ class SauresAPIClient:
                             _LOGGER.warning("API unavailable, using stale cached data")
                             return cached["data"]
                     return False
-                    
-                # Exponential backoff for network errors
-                delay = self._calculate_backoff_delay(attempt, 2.0)
-                await asyncio.sleep(delay)
+
+                # Per API documentation example: wait 60 seconds for network errors
+                _LOGGER.info("Waiting 60 seconds before retry due to network error")
+                await asyncio.sleep(60)
                 continue
                 
             except Exception as err:
@@ -183,12 +191,16 @@ class SauresAPIClient:
                         "data": response,
                         "timestamp": time.time()
                     })
-                    
+                    _LOGGER.debug(
+                        "Cached response for %s (ttl: %dm, cache size: %d/%d)",
+                        url, cache_ttl, self._cache.size(), self._cache.maxsize
+                    )
+
                 # Reset error counters on success
                 if self._error_count > 0:
                     _LOGGER.info("API connection recovered after %d errors", self._error_count)
                     self._error_count = 0
-                    
+
                 return response
                 
             # Handle API errors
@@ -196,14 +208,17 @@ class SauresAPIClient:
             
             if "WrongSIDException" in errors:
                 _LOGGER.debug("SID expired, will renew")
-                self._sid = None
-                self._sid_expires = None
-                
+                # Per API documentation: reset SID only if not already renewing
                 if not self._sid_renewal:
-                    await self._update_sid()
-                    
+                    self._sid = None
+                    self._sid_expires = None
+                    data.pop("sid", None)
+
                 if attempt == REQUEST_ATTEMPTS:
                     return False
+
+                # Per API documentation: use check_sid() to wait for ongoing renewal
+                await self._check_sid()
                 continue
                 
             if "DuplicateRequestException" in errors:
@@ -227,19 +242,16 @@ class SauresAPIClient:
                     "count": self._rate_limit_errors,
                     "backoff_attempt": attempt
                 })
-                
+
                 # Longer delay for rate limiting
                 delay = self._calculate_backoff_delay(attempt, 30.0)
                 await asyncio.sleep(delay)
                 continue
-                
-            _LOGGER.error("API error (attempt %d/%d): %s", attempt, REQUEST_ATTEMPTS, response.get("errors"))
 
-            # For other errors, try exponential backoff
-            if attempt < REQUEST_ATTEMPTS:
-                delay = self._calculate_backoff_delay(attempt, 5.0)
-                await asyncio.sleep(delay)
-            # Last attempt failed - return False consistently with other error cases
+            # Per API documentation (line 352 in index.html):
+            # For other errors, return response immediately without retry
+            _LOGGER.error("API error: %s", response.get("errors"))
+            return response
 
         return False
         
@@ -279,13 +291,19 @@ class SauresAPIClient:
             self._sid_renewal = False
             
     async def _check_sid(self) -> bool:
-        """Check if SID is valid and update if needed."""
+        """Check if SID is valid and update if needed.
+
+        Per API documentation example (lines 373-382 in index.html):
+        - Wait for ongoing renewal to complete
+        - Update SID if not valid
+        """
         if self._sid_renewal:
-            # Wait for ongoing renewal with timeout
+            # Wait for ongoing renewal with timeout (improvement over docs)
             timeout = 30  # 30 second timeout
             start_time = time.time()
             while self._sid_renewal and (time.time() - start_time) < timeout:
-                await asyncio.sleep(0.5)
+                # Per API documentation: 1 second sleep during renewal wait
+                await asyncio.sleep(1)
                 
             # Check if timeout exceeded
             if time.time() - start_time >= timeout:
@@ -299,17 +317,31 @@ class SauresAPIClient:
         return self._is_sid_valid()
         
     async def user_objects(self) -> list[dict[str, Any]]:
-        """Get user objects with extended caching (objects rarely change)."""
+        """Get user objects with extended caching (objects rarely change).
+
+        Cache TTL: 55 minutes
+        - Less than minimum update interval (60 min) to ensure fresh data on each update
+        - Long enough to prevent excessive API requests (per API documentation)
+        - User objects data changes very rarely
+        """
         if await self._check_sid():
-            response = await self.request("GET", "/user/objects", cache_ttl=60)  # Cache for 60 minutes
+            # Cache for 55 minutes to guarantee fresh data at 60 min intervals
+            response = await self.request("GET", "/user/objects", cache_ttl=55)
             if response and isinstance(response, dict):
                 return response["data"]["objects"]
         return []
 
     async def object_meters(self, object_id: int) -> dict[str, Any]:
-        """Get meters for object with optimized caching."""
+        """Get meters for object with optimized caching.
+
+        Cache TTL: 55 minutes
+        - Less than minimum update interval (60 min) to ensure fresh data on each update
+        - Long enough to prevent DuplicateRequestException (per API documentation)
+        - Saures R1 controllers update meter readings at fixed intervals
+        """
         if await self._check_sid():
-            response = await self.request("GET", "/object/meters", id=object_id, cache_ttl=15)  # Cache for 15 minutes
+            # Cache for 55 minutes to guarantee fresh data at 60 min intervals
+            response = await self.request("GET", "/object/meters", id=object_id, cache_ttl=55)
             if response and isinstance(response, dict):
                 return response["data"]
         return {}

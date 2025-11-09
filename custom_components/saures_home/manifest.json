@@ -1,12 +1,13 @@
 {
-  "domain": "saures",
-  "name": "Saures Water Meters",
+  "domain": "saures_home",
+  "name": "Saures Home",
+  "version": "1.1.0",
   "codeowners": ["@vitaliisergin"],
   "config_flow": true,
   "dependencies": [],
   "documentation": "https://github.com/vitaliisergin/saures-homeassistant",
+  "brand": "saures_home",
   "integration_type": "hub",
   "iot_class": "cloud_polling",
-  "requirements": ["aiohttp>=3.8.0"],
-  "version": "1.0"
+  "requirements": ["aiohttp>=3.8.0"]
 } 
